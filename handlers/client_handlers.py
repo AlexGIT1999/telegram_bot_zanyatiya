@@ -171,11 +171,15 @@ def register_client_handlers(bot, admin_ids_list):
         
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add("Да, всё верно", "Нет, начать заново")
-        msg = bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
-        bot.register_next_step_handler(msg, process_confirmation_step)
+        bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
+        # Убираем лишний register_next_step_handler - он будет вызван позже
 
     def process_confirmation_step(message):
         """Обрабатывает подтверждение записи"""
+        # Проверяем, что это действительно сообщение от пользователя (не пустой вызов)
+        if not hasattr(message, 'from_user') or not hasattr(message, 'text'):
+            return
+            
         user_id = message.from_user.id
         
         # Проверяем, что у пользователя есть все необходимые данные
