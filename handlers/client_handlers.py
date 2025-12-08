@@ -147,9 +147,16 @@ def register_client_handlers(bot, admin_ids_list):
         # Сохраняем данные пользователя
         data.save_user(user_id, user_data[user_id])
         
-        # Проверяем, что у пользователя есть все необходимые данные
-        if user_id not in user_data or 'parent_name' not in user_data[user_id] or 'child_name' not in user_data[user_id] or 'phone' not in user_data[user_id]:
-            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново.", reply_markup=telebot.types.ReplyKeyboardRemove())
+        # Проверяем, что у пользователя есть все необходимые данные перед подтверждением
+        if user_id not in user_data:
+            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
+            return
+            
+        required_fields = ['parent_name', 'child_name', 'phone']
+        missing_fields = [field for field in required_fields if field not in user_data[user_id]]
+        
+        if missing_fields:
+            bot.send_message(message.chat.id, f"Произошла ошибка. Отсутствуют данные: {', '.join(missing_fields)}. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
             return
         
         # Показываем введенные данные для подтверждения
@@ -169,11 +176,21 @@ def register_client_handlers(bot, admin_ids_list):
         user_id = message.from_user.id
         
         # Проверяем, что у пользователя есть все необходимые данные
-        if user_id not in user_data or 'selected_date' not in user_data[user_id] or 'selected_time' not in user_data[user_id]:
-            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново.", reply_markup=telebot.types.ReplyKeyboardRemove())
+        if user_id not in user_data:
+            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
+            return
+            
+        required_fields = ['parent_name', 'child_name', 'phone', 'selected_date', 'selected_time']
+        missing_fields = [field for field in required_fields if field not in user_data[user_id]]
+        
+        if missing_fields:
+            bot.send_message(message.chat.id, f"Произошла ошибка. Отсутствуют данные: {', '.join(missing_fields)}. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
+            # Очищаем данные пользователя
+            if user_id in user_data:
+                del user_data[user_id]
             return
         
-        if message.text == "Подтвердить запись":
+        if message.text == "Да, всё верно":
             # Отмечаем слот как занятый
             slots = data.load_slots()
             date = user_data[user_id]['selected_date']
