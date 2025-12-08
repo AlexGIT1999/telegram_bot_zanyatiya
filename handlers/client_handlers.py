@@ -147,6 +147,11 @@ def register_client_handlers(bot, admin_ids_list):
         # Сохраняем данные пользователя
         data.save_user(user_id, user_data[user_id])
         
+        # Проверяем, что у пользователя есть все необходимые данные
+        if user_id not in user_data or 'parent_name' not in user_data[user_id] or 'child_name' not in user_data[user_id] or 'phone' not in user_data[user_id]:
+            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново.", reply_markup=telebot.types.ReplyKeyboardRemove())
+            return
+        
         # Показываем введенные данные для подтверждения
         confirmation_text = f"Проверьте введенные данные:\n\n"
         confirmation_text += f"Ваше имя: {user_data[user_id]['parent_name']}\n"
@@ -163,7 +168,12 @@ def register_client_handlers(bot, admin_ids_list):
         """Обрабатывает подтверждение записи"""
         user_id = message.from_user.id
         
-        if message.text == "Да, всё верно":
+        # Проверяем, что у пользователя есть все необходимые данные
+        if user_id not in user_data or 'selected_date' not in user_data[user_id] or 'selected_time' not in user_data[user_id]:
+            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново.", reply_markup=telebot.types.ReplyKeyboardRemove())
+            return
+        
+        if message.text == "Подтвердить запись":
             # Отмечаем слот как занятый
             slots = data.load_slots()
             date = user_data[user_id]['selected_date']
@@ -200,12 +210,20 @@ def register_client_handlers(bot, admin_ids_list):
                 f"Пожалуйста, подтвердите участие по кнопке в напоминании.",
                 reply_markup=telebot.types.ReplyKeyboardRemove()
             )
+            
+            # Очищаем временные данные пользователя
+            if user_id in user_data:
+                del user_data[user_id]
         else:
             bot.send_message(
                 message.chat.id, 
                 "Запись отменена.", 
                 reply_markup=telebot.types.ReplyKeyboardRemove()
             )
+            
+            # Очищаем временные данные пользователя
+            if user_id in user_data:
+                del user_data[user_id]
     
     def show_available_dates(message):
         """Показывает доступные даты для записи"""
@@ -240,6 +258,10 @@ def register_client_handlers(bot, admin_ids_list):
         """Обрабатывает выбор даты"""
         user_id = message.from_user.id
         selected_date = message.text
+        
+        # Сохраняем выбранную дату во временные данные пользователя
+        if user_id not in user_data:
+            user_data[user_id] = {}
         user_data[user_id]['selected_date'] = selected_date
         
         # Загружаем доступные слоты для выбранной даты
@@ -272,10 +294,17 @@ def register_client_handlers(bot, admin_ids_list):
         msg = bot.send_message(message.chat.id, "Выберите время для записи:", reply_markup=markup)
         bot.register_next_step_handler(msg, process_time_selection)
 
+
     def process_time_selection(message):
         """Обрабатывает выбор времени"""
         user_id = message.from_user.id
         selected_time = message.text
+        
+        # Проверяем, что у пользователя есть выбранная дата
+        if user_id not in user_data or 'selected_date' not in user_data[user_id]:
+            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново.", reply_markup=telebot.types.ReplyKeyboardRemove())
+            return
+            
         user_data[user_id]['selected_time'] = selected_time
         
         # Формируем подтверждение записи
