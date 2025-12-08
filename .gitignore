@@ -45,7 +45,8 @@ Thumbs.db
 
 # Config files that contain sensitive data
 .env
-config.ini
+.env.production
+*.env.local
 
 # Log files
 *.log
@@ -53,3 +54,6 @@ config.ini
 # Temporary files
 tmp/
 temp/
+
+# Deploy files
+deploy.sh

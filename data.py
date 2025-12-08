@@ -64,5 +64,10 @@ def load_users():
     except FileNotFoundError:
         return {}
 
+def save_bookings(bookings):
+    """Сохраняет все записи в файл"""
+    with open(BOOKINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(bookings, f, ensure_ascii=False, indent=2)
+
 # Инициализируем файлы при запуске
 init_files()
