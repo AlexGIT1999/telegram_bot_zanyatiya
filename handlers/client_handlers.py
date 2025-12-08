@@ -1,6 +1,9 @@
 import telebot
 from datetime import datetime, timedelta
 import data
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Словарь для хранения временных данных пользователей
 user_data = {}
@@ -276,10 +279,16 @@ def register_client_handlers(bot, admin_ids_list):
         user_id = message.from_user.id
         selected_date = message.text
         
-        # Сохраняем выбранную дату во временные данные пользователя
+        logger.info(f"User {user_id} selected date: {selected_date}")
+        
+        # Проверяем, что у пользователя есть базовые данные
         if user_id not in user_data:
             user_data[user_id] = {}
+            logger.info(f"Created new user_data for user {user_id}")
+            
+        # Сохраняем выбранную дату
         user_data[user_id]['selected_date'] = selected_date
+        logger.info(f"Saved selected_date for user {user_id}: {selected_date}")
         
         # Загружаем доступные слоты для выбранной даты
         slots = data.load_slots()
@@ -311,18 +320,31 @@ def register_client_handlers(bot, admin_ids_list):
         msg = bot.send_message(message.chat.id, "Выберите время для записи:", reply_markup=markup)
         bot.register_next_step_handler(msg, process_time_selection)
 
-
     def process_time_selection(message):
         """Обрабатывает выбор времени"""
         user_id = message.from_user.id
         selected_time = message.text
         
+        logger.info(f"User {user_id} selected time: {selected_time}")
+        logger.info(f"Current user_data for {user_id}: {user_data.get(user_id, 'No data')}")
+        
         # Проверяем, что у пользователя есть выбранная дата
         if user_id not in user_data or 'selected_date' not in user_data[user_id]:
-            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново.", reply_markup=telebot.types.ReplyKeyboardRemove())
+            bot.send_message(message.chat.id, "Произошла ошибка с датой. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
             return
             
+        # Сохраняем выбранное время
+        if user_id not in user_data:
+            user_data[user_id] = {}
         user_data[user_id]['selected_time'] = selected_time
+        
+        # Проверяем, что у пользователя есть все необходимые данные
+        required_fields = ['parent_name', 'child_name', 'phone', 'selected_date', 'selected_time']
+        missing_fields = [field for field in required_fields if field not in user_data[user_id]]
+        
+        if missing_fields:
+            bot.send_message(message.chat.id, f"Произошла ошибка. Отсутствуют данные: {', '.join(missing_fields)}. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
+            return
         
         # Формируем подтверждение записи
         confirmation_text = f"Подтвердите запись:\n\n"
