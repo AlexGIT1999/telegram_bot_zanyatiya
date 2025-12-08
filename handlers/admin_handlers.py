@@ -2,12 +2,14 @@ import telebot
 import data
 from datetime import datetime, timedelta
 
-def register_admin_handlers(bot, admin_id):
-    """Регистрирует обработчики для администратора"""
+def register_admin_handlers(bot, admin_ids_list):
+    """Регистрирует обработчики для администраторов"""
+    # Сохраняем список админов в замыкании
+    admin_ids = admin_ids_list
     
     def is_admin(user_id):
         """Проверяет, является ли пользователь администратором"""
-        return str(user_id) == admin_id
+        return str(user_id) in admin_ids
     
     @bot.message_handler(commands=['admin'])
     def admin_panel(message):
@@ -37,6 +39,7 @@ def register_admin_handlers(bot, admin_id):
 📅 Управление слотами:
 - Добавление слотов: указать дату и временной диапазон
 - Просмотр всех слотов и их статусов
+- Удаление слотов
 
 👥 Просмотр записей:
 - Все активные записи клиентов
@@ -44,6 +47,7 @@ def register_admin_handlers(bot, admin_id):
 
 📊 Аналитика:
 - Статистика по записям за периоды
+- Подтверждения и отмены
 """
             bot.send_message(message.chat.id, help_text)
         else:
@@ -63,96 +67,7 @@ def register_admin_handlers(bot, admin_id):
             "Управление слотами для записи", 
             reply_markup=markup
         )
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
-    def process_delete_callback(call):
-        """Обработка нажатий в меню удаления слотов"""
-        try:
-            if call.data == "delete_back":
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    text="Удаление отменено."
-                )
-                show_admin_menu(call.message)
-                return
-            
-            if call.data.startswith('delete_slot_'):
-                # Разбираем данные слота
-                parts = call.data.split('_')
-                if len(parts) >= 4:
-                    date = parts[2]
-                    slot_index = int(parts[3])
-                    
-                    # Загружаем слоты
-                    slots = data.load_slots()
-                    
-                    if date in slots and slot_index < len(slots[date]):
-                        deleted_slot = slots[date][slot_index]
-                        slot_time = deleted_slot['time']
-                        
-                        # Удаляем слот
-                        del slots[date][slot_index]
-                        
-                        # Если после удаления в дате не осталось слотов, удаляем дату
-                        if not slots[date]:
-                            del slots[date]
-                        
-                        # Сохраняем изменения
-                        data.save_slots(slots)
-                        
-                        bot.edit_message_text(
-                            chat_id=call.message.chat.id,
-                            message_id=call.message.message_id,
-                            text=f"✅ Слот удален:\nДата: {date}\nВремя: {slot_time}"
-                        )
-                        
-                        # Показываем меню через 2 секунды
-                        import time
-                        time.sleep(2)
-                        show_admin_menu(call.message)
-                    else:
-                        bot.answer_callback_query(call.id, "Ошибка: слот не найден")
-                else:
-                    bot.answer_callback_query(call.id, "Ошибка: некорректные данные")
-            else:
-                bot.answer_callback_query(call.id, "Неизвестная команда")
-                    
-        except Exception as e:
-            bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
-
-    @bot.message_handler(func=lambda message: message.text == "🗑️ Удалить слоты" and is_admin(message.from_user.id))
-    def admin_delete_slots(message):
-        """Админ: удаление слотов"""
-        slots = data.load_slots()
-        
-        if not slots:
-            bot.send_message(message.chat.id, "Нет созданных слотов для удаления.", reply_markup=telebot.types.ReplyKeyboardRemove())
-            show_admin_menu(message)
-            return
-        
-        # Создаем inline клавиатуру со всеми слотами
-        markup = telebot.types.InlineKeyboardMarkup()
-        
-        for date, date_slots in slots.items():
-            # Добавляем заголовок с датой
-            markup.add(telebot.types.InlineKeyboardButton(f"📅 {date}", callback_data=f"date_header_{date}"))
-            
-            # Добавляем кнопки для каждого слота
-            for i, slot in enumerate(date_slots):
-                slot_text = f"{slot['time']} - {'✅' if slot.get('available', True) else '❌'}"
-                callback_data = f"delete_slot_{date}_{i}"
-                markup.add(telebot.types.InlineKeyboardButton(slot_text, callback_data=callback_data))
-        
-        # Добавляем кнопку "Назад"
-        markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="delete_back"))
-        
-        bot.send_message(
-            message.chat.id, 
-            "Выберите слот для удаления:", 
-            reply_markup=markup
-        )
-  
+    
     @bot.message_handler(func=lambda message: message.text == "➕ Добавить слоты" and is_admin(message.from_user.id))
     def admin_add_slots(message):
         """Админ: добавление слотов"""
@@ -261,6 +176,95 @@ def register_admin_handlers(bot, admin_id):
         bot.send_message(message.chat.id, response, reply_markup=telebot.types.ReplyKeyboardRemove())
         show_admin_menu(message)
     
+    @bot.message_handler(func=lambda message: message.text == "🗑️ Удалить слоты" and is_admin(message.from_user.id))
+    def admin_delete_slots(message):
+        """Админ: удаление слотов"""
+        slots = data.load_slots()
+        
+        if not slots:
+            bot.send_message(message.chat.id, "Нет созданных слотов для удаления.", reply_markup=telebot.types.ReplyKeyboardRemove())
+            show_admin_menu(message)
+            return
+        
+        # Создаем inline клавиатуру со всеми слотами
+        markup = telebot.types.InlineKeyboardMarkup()
+        
+        for date, date_slots in slots.items():
+            # Добавляем заголовок с датой
+            markup.add(telebot.types.InlineKeyboardButton(f"📅 {date}", callback_data=f"date_header_{date}"))
+            
+            # Добавляем кнопки для каждого слота
+            for i, slot in enumerate(date_slots):
+                slot_text = f"{slot['time']} - {'✅' if slot.get('available', True) else '❌'}"
+                callback_data = f"delete_slot_{date}_{i}"
+                markup.add(telebot.types.InlineKeyboardButton(slot_text, callback_data=callback_data))
+        
+        # Добавляем кнопку "Назад"
+        markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="delete_back"))
+        
+        bot.send_message(
+            message.chat.id, 
+            "Выберите слот для удаления:", 
+            reply_markup=markup
+        )
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
+    def process_delete_callback(call):
+        """Обработка нажатий в меню удаления слотов"""
+        try:
+            if call.data == "delete_back":
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Удаление отменено."
+                )
+                show_admin_menu(call.message)
+                return
+            
+            if call.data.startswith('delete_slot_'):
+                # Разбираем данные слота
+                parts = call.data.split('_')
+                if len(parts) >= 4:
+                    date = parts[2]
+                    slot_index = int(parts[3])
+                    
+                    # Загружаем слоты
+                    slots = data.load_slots()
+                    
+                    if date in slots and slot_index < len(slots[date]):
+                        deleted_slot = slots[date][slot_index]
+                        slot_time = deleted_slot['time']
+                        
+                        # Удаляем слот
+                        del slots[date][slot_index]
+                        
+                        # Если после удаления в дате не осталось слотов, удаляем дату
+                        if not slots[date]:
+                            del slots[date]
+                        
+                        # Сохраняем изменения
+                        data.save_slots(slots)
+                        
+                        bot.edit_message_text(
+                            chat_id=call.message.chat.id,
+                            message_id=call.message.message_id,
+                            text=f"✅ Слот удален:\nДата: {date}\nВремя: {slot_time}"
+                        )
+                        
+                        # Показываем меню через 2 секунды
+                        import time
+                        time.sleep(2)
+                        show_admin_menu(call.message)
+                    else:
+                        bot.answer_callback_query(call.id, "Ошибка: слот не найден")
+                else:
+                    bot.answer_callback_query(call.id, "Ошибка: некорректные данные")
+            else:
+                bot.answer_callback_query(call.id, "Неизвестная команда")
+                    
+        except Exception as e:
+            bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
+    
     @bot.message_handler(func=lambda message: message.text == "👥 Просмотр записей" and is_admin(message.from_user.id))
     def admin_view_bookings(message):
         """Админ: просмотр записей"""
@@ -273,11 +277,22 @@ def register_admin_handlers(bot, admin_id):
         
         response = "👥 Записи на занятия:\n\n"
         for booking in bookings:
+            # Пропускаем отмененные записи
+            if booking.get('cancelled_by_user', False):
+                continue
+                
+            status = ""
+            if booking.get('confirmed', False):
+                status = "✅ Подтверждена"
+            else:
+                status = "⏰ Не подтверждена"
+            
             response += f"📅 {booking['date']} {booking['time']}\n"
             response += f"👨 Родитель: {booking['parent_name']}\n"
             response += f"👶 Ребенок: {booking['child_name']}\n"
             response += f"📞 Телефон: {booking['phone']}\n"
             response += f"🆔 ID пользователя: {booking['user_id']}\n"
+            response += f"📊 Статус: {status}\n"
             response += "➖➖➖➖➖\n"
         
         bot.send_message(message.chat.id, response, reply_markup=telebot.types.ReplyKeyboardRemove())
@@ -294,14 +309,12 @@ def register_admin_handlers(bot, admin_id):
             return
         
         # Подсчет статистики
-        total_bookings = len(bookings)
+        total_bookings = len([b for b in bookings if not b.get('cancelled_by_user', False)])
+        cancelled_bookings = len([b for b in bookings if b.get('cancelled_by_user', False)])
         
         # Статистика по подтверждениям
-        confirmed_bookings = len([b for b in bookings if b.get('confirmed', False)])
+        confirmed_bookings = len([b for b in bookings if b.get('confirmed', False) and not b.get('cancelled_by_user', False)])
         unconfirmed_bookings = total_bookings - confirmed_bookings
-        
-        # Статистика по отменам через напоминания
-        cancelled_bookings = len([b for b in bookings if 'cancelled_by_user' in b and b['cancelled_by_user']])
         
         # Статистика по периодам
         now = datetime.now()
@@ -318,6 +331,9 @@ def register_admin_handlers(bot, admin_id):
         
         # Подсчитываем записи по периодам с обработкой ошибок
         for booking in bookings:
+            if booking.get('cancelled_by_user', False):
+                continue
+                
             try:
                 # Пытаемся распарсить timestamp
                 timestamp_str = booking['timestamp']
@@ -344,6 +360,8 @@ def register_admin_handlers(bot, admin_id):
         # Топ детей по количеству записей
         children_count = {}
         for booking in bookings:
+            if booking.get('cancelled_by_user', False):
+                continue
             child_name = booking['child_name']
             children_count[child_name] = children_count.get(child_name, 0) + 1
         
@@ -369,10 +387,10 @@ def register_admin_handlers(bot, admin_id):
         
         # Формируем отчет
         report = "📊 Аналитика по записям\n\n"
-        report += f"Всего записей: {total_bookings}\n"
+        report += f"Всего активных записей: {total_bookings}\n"
         report += f"Подтвержденных: {confirmed_bookings}\n"
         report += f"Не подтвержденных: {unconfirmed_bookings}\n"
-        report += f"Отмененных через напоминания: {cancelled_bookings}\n\n"
+        report += f"Отмененных клиентами: {cancelled_bookings}\n\n"
         report += "📅 По периодам:\n"
         report += f"За последнюю неделю: {week_count}\n"
         report += f"За последний месяц: {month_count}\n"
@@ -399,6 +417,11 @@ def register_admin_handlers(bot, admin_id):
         """Админ: возврат в главное меню"""
         show_admin_menu(message)
     
+    @bot.message_handler(func=lambda message: message.text == "📱 Меню" and is_admin(message.from_user.id))
+    def admin_show_menu(message):
+        """Показать главное меню администратора"""
+        show_admin_menu(message)
+    
     def show_admin_menu(message):
         """Показывает меню администратора"""
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -414,12 +437,7 @@ def register_admin_handlers(bot, admin_id):
             "Панель администратора\n\nДоступные команды:\n/admin - Вход в админку\n/admin_help - Помощь", 
             reply_markup=markup
         )
-
-    @bot.message_handler(func=lambda message: message.text == "📱 Меню" and is_admin(message.from_user.id))
-    def admin_show_menu(message):
-        """Показать главное меню администратора"""
-        show_admin_menu(message)
-
+    
     @bot.message_handler(func=lambda message: message.text == "🚪 Выход" and is_admin(message.from_user.id))
     def admin_exit(message):
         """Админ: выход из админки"""

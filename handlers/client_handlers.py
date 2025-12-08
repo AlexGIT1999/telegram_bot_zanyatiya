@@ -5,8 +5,14 @@ import data
 # Словарь для хранения временных данных пользователей
 user_data = {}
 
-def register_client_handlers(bot, admin_id):
+def register_client_handlers(bot, admin_ids_list):
     """Регистрирует обработчики для клиентов"""
+    # Сохраняем список админов
+    admin_ids = admin_ids_list
+    
+    def is_admin(user_id):
+        """Проверяет, является ли пользователь администратором"""
+        return str(user_id) in admin_ids
     
     @bot.message_handler(commands=['start'])
     def send_welcome(message):
@@ -25,13 +31,7 @@ def register_client_handlers(bot, admin_id):
             "Привет! Я бот для записи на занятия.\nВыберите действие:",
             reply_markup=markup
         )
-
-
-    @bot.message_handler(func=lambda message: message.text == "📱 Меню")
-    def show_menu(message):
-        """Показать главное меню"""
-        send_welcome(message)
-
+    
     @bot.message_handler(commands=['help', 'client_help'])
     def client_help_handler(message):
         """Помощь для клиентов"""
@@ -56,6 +56,8 @@ def register_client_handlers(bot, admin_id):
 2. Выберите запись из списка
 3. Подтвердите отмену
 
+📅 Мои записи - просмотр ваших активных записей
+
 Напоминание придет за день до занятия.
 """
         bot.send_message(message.chat.id, help_text)
@@ -64,54 +66,12 @@ def register_client_handlers(bot, admin_id):
     def client_help_button(message):
         """Помощь через кнопку"""
         client_help(message)
-
-    @bot.message_handler(func=lambda message: message.text == "📅 Мои записи")
-    def view_my_bookings(message):
-        """Просмотр записей клиента"""
-        user_id = message.from_user.id
-        bookings = data.load_bookings()
-        
-        # Находим записи пользователя
-        user_bookings = [b for b in bookings if b['user_id'] == user_id]
-        
-        if not user_bookings:
-            bot.send_message(
-                message.chat.id, 
-                "У вас нет активных записей.", 
-                reply_markup=telebot.types.ReplyKeyboardRemove()
-            )
-            return
-        
-        response = "📅 Ваши записи на занятия:\n\n"
-        for booking in user_bookings:
-            # Проверяем, не был ли слот удален администратором
-            slots = data.load_slots()
-            slot_exists = False
-            slot_available = True
-            
-            if booking['date'] in slots:
-                for slot in slots[booking['date']]:
-                    if slot['time'] == booking['time']:
-                        slot_exists = True
-                        slot_available = slot.get('available', True)
-                        break
-            
-            status = ""
-            if not slot_exists:
-                status = " (⚠️ Слот удален администратором)"
-            elif not slot_available:
-                status = " (✅ Активна)"
-            else:
-                status = " (❓ Статус неопределен)"
-            
-            response += f"📅 {booking['date']} {booking['time']}\n"
-            response += f"👶 {booking['child_name']}\n"
-            response += f"📞 {booking['phone']}\n"
-            response += f"{status}\n"
-            response += "➖➖➖➖➖\n"
-        
-        bot.send_message(message.chat.id, response, reply_markup=telebot.types.ReplyKeyboardRemove())
-
+    
+    @bot.message_handler(func=lambda message: message.text == "📱 Меню")
+    def show_menu(message):
+        """Показать главное меню"""
+        send_welcome(message)
+    
     @bot.message_handler(func=lambda message: message.text == "📝 Записаться на занятие")
     def start_booking(message):
         user_id = message.from_user.id
@@ -199,36 +159,54 @@ def register_client_handlers(bot, admin_id):
         msg = bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
         bot.register_next_step_handler(msg, process_confirmation_step)
 
-    def process_phone_step(message):
-        user_id = message.from_user.id
-        user_data[user_id]['phone'] = message.text
-        
-        # Сохраняем данные пользователя
-        data.save_user(user_id, user_data[user_id])
-        
-        # Показываем введенные данные для подтверждения
-        confirmation_text = f"Проверьте введенные данные:\n\n"
-        confirmation_text += f"Ваше имя: {user_data[user_id]['parent_name']}\n"
-        confirmation_text += f"Имя ребенка: {user_data[user_id]['child_name']}\n"
-        confirmation_text += f"Телефон: {user_data[user_id]['phone']}\n\n"
-        confirmation_text += "Всё верно?"
-        
-        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add("Да, всё верно", "Нет, начать заново")
-        msg = bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
-        bot.register_next_step_handler(msg, process_confirmation_step)
-
     def process_confirmation_step(message):
+        """Обрабатывает подтверждение записи"""
         user_id = message.from_user.id
         
         if message.text == "Да, всё верно":
-            bot.send_message(message.chat.id, "Отлично! Теперь вы можете записаться на занятие.", reply_markup=telebot.types.ReplyKeyboardRemove())
-            show_available_dates(message)  # Показываем доступные даты
+            # Отмечаем слот как занятый
+            slots = data.load_slots()
+            date = user_data[user_id]['selected_date']
+            time = user_data[user_id]['selected_time']
+            
+            if date in slots:
+                for slot in slots[date]:
+                    if slot['time'] == time:
+                        slot['available'] = False
+                        break
+            
+            data.save_slots(slots)
+            
+            # Сохраняем запись с полем подтверждения
+            booking = {
+                "user_id": user_id,
+                "parent_name": user_data[user_id]['parent_name'],
+                "child_name": user_data[user_id]['child_name'],
+                "phone": user_data[user_id]['phone'],
+                "date": user_data[user_id]['selected_date'],
+                "time": user_data[user_id]['selected_time'],
+                "timestamp": datetime.now().isoformat(),
+                "confirmed": False  # По умолчанию не подтверждена
+            }
+            
+            data.save_booking(booking)
+            
+            bot.send_message(
+                message.chat.id, 
+                f"✅ Вы успешно записаны!\n\n"
+                f"Дата: {user_data[user_id]['selected_date']}\n"
+                f"Время: {user_data[user_id]['selected_time']}\n\n"
+                f"Напоминание придет за день до занятия. "
+                f"Пожалуйста, подтвердите участие по кнопке в напоминании.",
+                reply_markup=telebot.types.ReplyKeyboardRemove()
+            )
         else:
-            # Начинаем регистрацию заново
-            msg = bot.send_message(message.chat.id, "Хорошо, давайте начнем заново.\nВведите вашу фамилию и имя:", reply_markup=telebot.types.ReplyKeyboardRemove())
-            bot.register_next_step_handler(msg, process_parent_name_step)
-
+            bot.send_message(
+                message.chat.id, 
+                "Запись отменена.", 
+                reply_markup=telebot.types.ReplyKeyboardRemove()
+            )
+    
     def show_available_dates(message):
         """Показывает доступные даты для записи"""
         slots = data.load_slots()
@@ -310,55 +288,56 @@ def register_client_handlers(bot, admin_id):
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add("Подтвердить запись", "Отмена")
         msg = bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
-        bot.register_next_step_handler(msg, process_booking_confirmation)
-
-    def process_booking_confirmation(message):
-        """Обрабатывает подтверждение записи"""
+        bot.register_next_step_handler(msg, process_confirmation_step)
+    
+    @bot.message_handler(func=lambda message: message.text == "📅 Мои записи")
+    def view_my_bookings(message):
+        """Просмотр записей клиента"""
         user_id = message.from_user.id
+        bookings = data.load_bookings()
         
-        if message.text == "Подтвердить запись":
-            # Отмечаем слот как занятый
+        # Находим записи пользователя
+        user_bookings = [b for b in bookings if b['user_id'] == user_id and not b.get('cancelled_by_user', False)]
+        
+        if not user_bookings:
+            bot.send_message(
+                message.chat.id, 
+                "У вас нет активных записей.", 
+                reply_markup=telebot.types.ReplyKeyboardRemove()
+            )
+            return
+        
+        response = "📅 Ваши записи на занятия:\n\n"
+        for booking in user_bookings:
+            # Проверяем, не был ли слот удален администратором
             slots = data.load_slots()
-            date = user_data[user_id]['selected_date']
-            time = user_data[user_id]['selected_time']
+            slot_exists = False
+            slot_available = True
             
-            if date in slots:
-                for slot in slots[date]:
-                    if slot['time'] == time:
-                        slot['available'] = False
+            if booking['date'] in slots:
+                for slot in slots[booking['date']]:
+                    if slot['time'] == booking['time']:
+                        slot_exists = True
+                        slot_available = slot.get('available', True)
                         break
             
-            data.save_slots(slots)
+            status = ""
+            if not slot_exists:
+                status = " (⚠️ Слот удален администратором)"
+            elif not slot_available:
+                if booking.get('confirmed', False):
+                    status = " (✅ Подтверждена)"
+                else:
+                    status = " (⏰ Ожидает подтверждения)"
+            else:
+                status = " (❓ Статус неопределен)"
             
-            # Сохраняем запись с полем подтверждения
-            booking = {
-                "user_id": user_id,
-                "parent_name": user_data[user_id]['parent_name'],
-                "child_name": user_data[user_id]['child_name'],
-                "phone": user_data[user_id]['phone'],
-                "date": user_data[user_id]['selected_date'],
-                "time": user_data[user_id]['selected_time'],
-                "timestamp": datetime.now().isoformat(),
-                "confirmed": False  # По умолчанию не подтверждена
-            }
-            
-            data.save_booking(booking)
-            
-            bot.send_message(
-                message.chat.id, 
-                f"✅ Вы успешно записаны!\n\n"
-                f"Дата: {user_data[user_id]['selected_date']}\n"
-                f"Время: {user_data[user_id]['selected_time']}\n\n"
-                f"Напоминание придет за день до занятия. "
-                f"Пожалуйста, подтвердите участие по кнопке в напоминании.",
-                reply_markup=telebot.types.ReplyKeyboardRemove()
-            )
-        else:
-            bot.send_message(
-                message.chat.id, 
-                "Запись отменена.", 
-                reply_markup=telebot.types.ReplyKeyboardRemove()
-            )
+            response += f"📅 {booking['date']} {booking['time']}\n"
+            response += f"👶 {booking['child_name']}\n"
+            response += f"{status}\n"
+            response += "➖➖➖➖➖\n"
+        
+        bot.send_message(message.chat.id, response, reply_markup=telebot.types.ReplyKeyboardRemove())
     
     @bot.message_handler(func=lambda message: message.text == "❌ Отменить запись")
     def cancel_booking(message):
@@ -366,8 +345,8 @@ def register_client_handlers(bot, admin_id):
         user_id = message.from_user.id
         bookings = data.load_bookings()
         
-        # Находим записи пользователя
-        user_bookings = [b for b in bookings if b['user_id'] == user_id]
+        # Находим записи пользователя (только не отмененные)
+        user_bookings = [b for b in bookings if b['user_id'] == user_id and not b.get('cancelled_by_user', False)]
         
         if not user_bookings:
             bot.send_message(
@@ -405,7 +384,7 @@ def register_client_handlers(bot, admin_id):
                     return
                 
                 bookings = data.load_bookings()
-                user_bookings = [b for b in bookings if b['user_id'] == booking_user_id]
+                user_bookings = [b for b in bookings if b['user_id'] == booking_user_id and not b.get('cancelled_by_user', False)]
                 
                 if index < len(user_bookings):
                     booking_to_cancel = user_bookings[index]
@@ -423,12 +402,13 @@ def register_client_handlers(bot, admin_id):
                     
                     data.save_slots(slots)
                     
-                    # Удаляем запись из списка
-                    bookings = [b for b in bookings if not (
-                        b['user_id'] == booking_user_id and 
-                        b['date'] == booking_to_cancel['date'] and 
-                        b['time'] == booking_to_cancel['time']
-                    )]
+                    # Помечаем запись как отмененную пользователем
+                    for booking in bookings:
+                        if (booking['user_id'] == booking_user_id and 
+                            booking['date'] == booking_to_cancel['date'] and 
+                            booking['time'] == booking_to_cancel['time']):
+                            booking['cancelled_by_user'] = True
+                            break
                     
                     data.save_bookings(bookings)
                     
@@ -444,7 +424,7 @@ def register_client_handlers(bot, admin_id):
                     
         except Exception as e:
             bot.answer_callback_query(call.id, "Ошибка при отмене записи")
-
+    
     @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_') or call.data.startswith('cancel_reminder_'))
     def process_reminder_callback(call):
         """Обработка нажатий на кнопки подтверждения в напоминаниях"""
@@ -455,7 +435,7 @@ def register_client_handlers(bot, admin_id):
                 if len(parts) >= 4:
                     user_id = int(parts[1])
                     date = parts[2]
-                    time_slot = '_'.join(parts[3:])  # На случай если в дате или времени есть символы подчеркивания
+                    time_slot = '_'.join(parts[3:])  # Объединяем оставшиеся части
                     
                     # Проверяем, что пользователь подтверждает свою запись
                     if call.from_user.id != user_id:
@@ -495,7 +475,7 @@ def register_client_handlers(bot, admin_id):
                 if len(parts) >= 4:
                     user_id = int(parts[2])
                     date = parts[3]
-                    time_slot = '_'.join(parts[4:])  # На случай если в времени есть символы подчеркивания
+                    time_slot = '_'.join(parts[4:])  # Объединяем оставшиеся части
                     
                     # Проверяем, что пользователь отменяет свою запись
                     if call.from_user.id != user_id:
@@ -542,4 +522,3 @@ def register_client_handlers(bot, admin_id):
                     
         except Exception as e:
             bot.answer_callback_query(call.id, f"Ошибка при обработке: {str(e)}")
-

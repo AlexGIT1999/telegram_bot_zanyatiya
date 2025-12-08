@@ -3,14 +3,12 @@ import config
 from handlers import client_handlers, admin_handlers
 import reminders
 
-# Получаем токен и ID администратора из конфига
+# Получаем токен и список админов из конфига
 BOT_TOKEN = config.BOT_TOKEN
-ADMIN_ID = config.ADMIN_ID
+ADMIN_IDS = config.ADMIN_IDS
 
 if not BOT_TOKEN:
     raise ValueError("Не найден токен бота. Проверь файл .env")
-if not ADMIN_ID:
-    raise ValueError("Не найден ID администратора. Проверь файл .env")
 
 # Создаем бота
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -30,13 +28,13 @@ def setup_bot_commands():
 admin_handlers.init_bot_data(bot)
 
 # Регистрируем обработчики
-client_handlers.register_client_handlers(bot, ADMIN_ID)
-admin_handlers.register_admin_handlers(bot, ADMIN_ID)
+client_handlers.register_client_handlers(bot, ADMIN_IDS)
+admin_handlers.register_admin_handlers(bot, ADMIN_IDS)
 
 # Запуск бота
 if __name__ == '__main__':
     print("Бот запущен...")
-    print(f"Администраторский ID: {ADMIN_ID}")
+    print(f"Администраторские ID: {ADMIN_IDS}")
     print(f"Production mode: {config.IS_PRODUCTION}")
     
     # Настраиваем команды меню
