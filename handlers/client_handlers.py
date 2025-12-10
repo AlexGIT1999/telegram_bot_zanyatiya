@@ -1,12 +1,7 @@
 import telebot
 from datetime import datetime, timedelta
 import data
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Словарь для хранения временных данных пользователей
-user_data = {}
+import json
 
 def register_client_handlers(bot, admin_ids_list):
     """Регистрирует обработчики для клиентов"""
@@ -38,10 +33,6 @@ def register_client_handlers(bot, admin_ids_list):
     @bot.message_handler(commands=['help', 'client_help'])
     def client_help_handler(message):
         """Помощь для клиентов"""
-        client_help(message)
-    
-    def client_help(message):
-        """Помощь для клиентов"""
         help_text = """
 📖 Доступные команды для клиентов:
 
@@ -68,7 +59,7 @@ def register_client_handlers(bot, admin_ids_list):
     @bot.message_handler(func=lambda message: message.text == "📖 Помощь")
     def client_help_button(message):
         """Помощь через кнопку"""
-        client_help(message)
+        client_help_handler(message)
     
     @bot.message_handler(func=lambda message: message.text == "📱 Меню")
     def show_menu(message):
@@ -78,7 +69,6 @@ def register_client_handlers(bot, admin_ids_list):
     @bot.message_handler(func=lambda message: message.text == "📝 Записаться на занятие")
     def start_booking(message):
         user_id = message.from_user.id
-        user_data[user_id] = {}  # Создаем временное хранилище для пользователя
         
         # Проверяем наличие свободных слотов
         slots = data.load_slots()
@@ -104,17 +94,18 @@ def register_client_handlers(bot, admin_ids_list):
             reply_markup=telebot.types.ReplyKeyboardRemove()
         )
         bot.register_next_step_handler(msg, process_parent_name_step)
-    
+
     def process_parent_name_step(message):
         user_id = message.from_user.id
-        user_data[user_id] = {'parent_name': message.text}
+        parent_name = message.text
         
         msg = bot.send_message(message.chat.id, "Введите фамилию и имя ребенка:")
-        bot.register_next_step_handler(msg, process_child_name_step)
+        # Передаем parent_name через lambda замыкание
+        bot.register_next_step_handler(msg, lambda m: process_child_name_step(m, parent_name))
 
-    def process_child_name_step(message):
+    def process_child_name_step(message, parent_name):
         user_id = message.from_user.id
-        user_data[user_id]['child_name'] = message.text
+        child_name = message.text
         
         # Предлагаем ввести номер телефона или поделиться контактом
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -123,134 +114,34 @@ def register_client_handlers(bot, admin_ids_list):
         markup.add("Ввести вручную")
         
         msg = bot.send_message(message.chat.id, "Введите ваш номер телефона или поделитесь контактом:", reply_markup=markup)
-        bot.register_next_step_handler(msg, process_phone_input)
+        # Передаем parent_name и child_name через lambda замыкание
+        bot.register_next_step_handler(msg, lambda m: process_phone_input(m, parent_name, child_name))
 
-    def process_phone_input(message):
+    def process_phone_input(message, parent_name, child_name):
         user_id = message.from_user.id
         if message.contact:  # Если пользователь поделился контактом
-            user_data[user_id]['phone'] = message.contact.phone_number
-            # Переходим к подтверждению данных
-            show_confirmation(message)
+            phone = message.contact.phone_number
+            # Переходим к выбору даты
+            show_available_dates(message, parent_name, child_name, phone)
         elif message.text == "Ввести вручную":
             msg = bot.send_message(message.chat.id, "Введите ваш номер телефона:", reply_markup=telebot.types.ReplyKeyboardRemove())
-            bot.register_next_step_handler(msg, process_manual_phone_input)
+            # Передаем parent_name и child_name через lambda замыкание
+            bot.register_next_step_handler(msg, lambda m: process_manual_phone_input(m, parent_name, child_name))
         else:
-            user_data[user_id]['phone'] = message.text
-            # Переходим к подтверждению данных
-            show_confirmation(message)
-    
-    def process_manual_phone_input(message):
-        user_id = message.from_user.id
-        user_data[user_id]['phone'] = message.text
-        # Переходим к подтверждению данных
-        show_confirmation(message)
-    
-    def show_confirmation(message):
-        user_id = message.from_user.id
-        # Сохраняем данные пользователя
-        data.save_user(user_id, user_data[user_id])
-        
-        # Проверяем, что у пользователя есть все необходимые данные перед подтверждением
-        if user_id not in user_data:
-            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
-            return
-            
-        required_fields = ['parent_name', 'child_name', 'phone']
-        missing_fields = [field for field in required_fields if field not in user_data[user_id]]
-        
-        if missing_fields:
-            bot.send_message(message.chat.id, f"Произошла ошибка. Отсутствуют данные: {', '.join(missing_fields)}. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
-            return
-        
-        # Показываем введенные данные для подтверждения
-        confirmation_text = f"Проверьте введенные данные:\n\n"
-        confirmation_text += f"Ваше имя: {user_data[user_id]['parent_name']}\n"
-        confirmation_text += f"Имя ребенка: {user_data[user_id]['child_name']}\n"
-        confirmation_text += f"Телефон: {user_data[user_id]['phone']}\n\n"
-        confirmation_text += "Всё верно?"
-        
-        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add("Да, всё верно", "Нет, начать заново")
-        bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
-        # Убираем лишний register_next_step_handler - он будет вызван позже
+            phone = message.text
+            # Переходим к выбору даты
+            show_available_dates(message, parent_name, child_name, phone)
 
-    def process_confirmation_step(message):
-        """Обрабатывает подтверждение записи"""
-        # Проверяем, что это действительно сообщение от пользователя (не пустой вызов)
-        if not hasattr(message, 'from_user') or not hasattr(message, 'text'):
-            return
-            
+    def process_manual_phone_input(message, parent_name, child_name):
+        user_id = message.from_user.id
+        phone = message.text
+        # Переходим к выбору даты
+        show_available_dates(message, parent_name, child_name, phone)
+    
+    def show_available_dates(message, parent_name, child_name, phone):
+        """Показывает доступные даты для записи"""
         user_id = message.from_user.id
         
-        # Проверяем, что у пользователя есть все необходимые данные
-        if user_id not in user_data:
-            bot.send_message(message.chat.id, "Произошла ошибка. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
-            return
-            
-        required_fields = ['parent_name', 'child_name', 'phone', 'selected_date', 'selected_time']
-        missing_fields = [field for field in required_fields if field not in user_data[user_id]]
-        
-        if missing_fields:
-            bot.send_message(message.chat.id, f"Произошла ошибка. Отсутствуют данные: {', '.join(missing_fields)}. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
-            # Очищаем данные пользователя
-            if user_id in user_data:
-                del user_data[user_id]
-            return
-        
-        if message.text == "Да, всё верно":
-            # Отмечаем слот как занятый
-            slots = data.load_slots()
-            date = user_data[user_id]['selected_date']
-            time = user_data[user_id]['selected_time']
-            
-            if date in slots:
-                for slot in slots[date]:
-                    if slot['time'] == time:
-                        slot['available'] = False
-                        break
-            
-            data.save_slots(slots)
-            
-            # Сохраняем запись с полем подтверждения
-            booking = {
-                "user_id": user_id,
-                "parent_name": user_data[user_id]['parent_name'],
-                "child_name": user_data[user_id]['child_name'],
-                "phone": user_data[user_id]['phone'],
-                "date": user_data[user_id]['selected_date'],
-                "time": user_data[user_id]['selected_time'],
-                "timestamp": datetime.now().isoformat(),
-                "confirmed": False  # По умолчанию не подтверждена
-            }
-            
-            data.save_booking(booking)
-            
-            bot.send_message(
-                message.chat.id, 
-                f"✅ Вы успешно записаны!\n\n"
-                f"Дата: {user_data[user_id]['selected_date']}\n"
-                f"Время: {user_data[user_id]['selected_time']}\n\n"
-                f"Напоминание придет за день до занятия. "
-                f"Пожалуйста, подтвердите участие по кнопке в напоминании.",
-                reply_markup=telebot.types.ReplyKeyboardRemove()
-            )
-            
-            # Очищаем временные данные пользователя
-            if user_id in user_data:
-                del user_data[user_id]
-        else:
-            bot.send_message(
-                message.chat.id, 
-                "Запись отменена.", 
-                reply_markup=telebot.types.ReplyKeyboardRemove()
-            )
-            
-            # Очищаем временные данные пользователя
-            if user_id in user_data:
-                del user_data[user_id]
-    
-    def show_available_dates(message):
-        """Показывает доступные даты для записи"""
         slots = data.load_slots()
         available_dates = []
         
@@ -276,23 +167,13 @@ def register_client_handlers(bot, admin_ids_list):
             markup.add(date)
         
         msg = bot.send_message(message.chat.id, "Выберите дату для записи:", reply_markup=markup)
-        bot.register_next_step_handler(msg, process_date_selection)
+        # Передаем все данные через lambda замыкание
+        bot.register_next_step_handler(msg, lambda m: process_date_selection(m, parent_name, child_name, phone))
 
-    def process_date_selection(message):
+    def process_date_selection(message, parent_name, child_name, phone):
         """Обрабатывает выбор даты"""
         user_id = message.from_user.id
         selected_date = message.text
-        
-        logger.info(f"User {user_id} selected date: {selected_date}")
-        
-        # Проверяем, что у пользователя есть базовые данные
-        if user_id not in user_data:
-            user_data[user_id] = {}
-            logger.info(f"Created new user_data for user {user_id}")
-            
-        # Сохраняем выбранную дату
-        user_data[user_id]['selected_date'] = selected_date
-        logger.info(f"Saved selected_date for user {user_id}: {selected_date}")
         
         # Загружаем доступные слоты для выбранной даты
         slots = data.load_slots()
@@ -322,45 +203,74 @@ def register_client_handlers(bot, admin_ids_list):
             markup.add(slot)
         
         msg = bot.send_message(message.chat.id, "Выберите время для записи:", reply_markup=markup)
-        bot.register_next_step_handler(msg, process_time_selection)
+        # Передаем все данные через lambda замыкание
+        bot.register_next_step_handler(msg, lambda m: process_time_selection(m, parent_name, child_name, phone, selected_date))
 
-    def process_time_selection(message):
+    def process_time_selection(message, parent_name, child_name, phone, selected_date):
         """Обрабатывает выбор времени"""
         user_id = message.from_user.id
         selected_time = message.text
         
-        logger.info(f"User {user_id} selected time: {selected_time}")
-        logger.info(f"Current user_data for {user_id}: {user_data.get(user_id, 'No data')}")
-        
-        # Проверяем, что у пользователя есть выбранная дата
-        if user_id not in user_data or 'selected_date' not in user_data[user_id]:
-            bot.send_message(message.chat.id, "Произошла ошибка с датой. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
-            return
-            
-        # Сохраняем выбранное время
-        if user_id not in user_data:
-            user_data[user_id] = {}
-        user_data[user_id]['selected_time'] = selected_time
-        
-        # Проверяем, что у пользователя есть все необходимые данные
-        required_fields = ['parent_name', 'child_name', 'phone', 'selected_date', 'selected_time']
-        missing_fields = [field for field in required_fields if field not in user_data[user_id]]
-        
-        if missing_fields:
-            bot.send_message(message.chat.id, f"Произошла ошибка. Отсутствуют данные: {', '.join(missing_fields)}. Пожалуйста, начните запись заново с команды /start", reply_markup=telebot.types.ReplyKeyboardRemove())
-            return
-        
         # Формируем подтверждение записи
         confirmation_text = f"Подтвердите запись:\n\n"
-        confirmation_text += f"Дата: {user_data[user_id]['selected_date']}\n"
-        confirmation_text += f"Время: {selected_time}\n"
-        confirmation_text += f"Ребенок: {user_data[user_id]['child_name']}\n"
-        confirmation_text += f"Родитель: {user_data[user_id]['parent_name']}\n"
+        confirmation_text += f"Ваше имя: {parent_name}\n"
+        confirmation_text += f"Имя ребенка: {child_name}\n"
+        confirmation_text += f"Телефон: {phone}\n"
+        confirmation_text += f"Дата: {selected_date}\n"
+        confirmation_text += f"Время: {selected_time}\n\n"
+        confirmation_text += "Всё верно?"
         
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add("Подтвердить запись", "Отмена")
         msg = bot.send_message(message.chat.id, confirmation_text, reply_markup=markup)
-        bot.register_next_step_handler(msg, process_confirmation_step)
+        # Передаем все данные через lambda замыкание
+        bot.register_next_step_handler(msg, lambda m: process_confirmation_step(m, parent_name, child_name, phone, selected_date, selected_time))
+    
+    def process_confirmation_step(message, parent_name, child_name, phone, selected_date, selected_time):
+        """Обрабатывает подтверждение записи"""
+        user_id = message.from_user.id
+        
+        if message.text == "Подтвердить запись":
+            # Отмечаем слот как занятый
+            slots = data.load_slots()
+            
+            if selected_date in slots:
+                for slot in slots[selected_date]:
+                    if slot['time'] == selected_time:
+                        slot['available'] = False
+                        break
+            
+            data.save_slots(slots)
+            
+            # Сохраняем запись с полем подтверждения
+            booking = {
+                "user_id": user_id,
+                "parent_name": parent_name,
+                "child_name": child_name,
+                "phone": phone,
+                "date": selected_date,
+                "time": selected_time,
+                "timestamp": datetime.now().isoformat(),
+                "confirmed": False  # По умолчанию не подтверждена
+            }
+            
+            data.save_booking(booking)
+            
+            bot.send_message(
+                message.chat.id, 
+                f"✅ Вы успешно записаны!\n\n"
+                f"Дата: {selected_date}\n"
+                f"Время: {selected_time}\n\n"
+                f"Напоминание придет за день до занятия. "
+                f"Пожалуйста, подтвердите участие по кнопке в напоминании.",
+                reply_markup=telebot.types.ReplyKeyboardRemove()
+            )
+        else:
+            bot.send_message(
+                message.chat.id, 
+                "Запись отменена.", 
+                reply_markup=telebot.types.ReplyKeyboardRemove()
+            )
     
     @bot.message_handler(func=lambda message: message.text == "📅 Мои записи")
     def view_my_bookings(message):
