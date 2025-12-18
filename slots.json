@@ -1,26 +1,25 @@
 {
-  "09.12.2025": [
+  "19.12.2025": [
     {
       "time": "09:00-10:00",
-      "available": false
+      "available": false,
+      "deleted_by_admin": true
     },
     {
       "time": "10:00-11:00",
-      "available": false
-    },
-    {
-      "time": "11:00-12:00",
-      "available": false
+      "available": false,
+      "deleted_by_admin": true
     }
   ],
-  "10.12.2025": [
+  "20.12.2025": [
     {
-      "time": "15:00-16:00",
-      "available": false
+      "time": "13:00-14:00",
+      "available": false,
+      "deleted_by_admin": true
     },
     {
-      "time": "17:00-18:00",
-      "available": false
+      "time": "14:00-15:00",
+      "available": true
     }
   ]
 }

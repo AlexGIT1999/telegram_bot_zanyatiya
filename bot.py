@@ -22,14 +22,19 @@ def setup_bot_commands():
         telebot.types.BotCommand("/admin", "Админ панель"),
         telebot.types.BotCommand("/admin_help", "Помощь администратора"),
     ]
-    bot.set_my_commands(commands)
-
-# Инициализируем данные бота
-admin_handlers.init_bot_data(bot)
+    try:
+        bot.set_my_commands(commands)
+        print("Команды бота установлены.")
+    except Exception as e:
+        print(f"Ошибка при установке команд: {e}")
 
 # Регистрируем обработчики
+print("Регистрация обработчиков...")
 client_handlers.register_client_handlers(bot, ADMIN_IDS)
 admin_handlers.register_admin_handlers(bot, ADMIN_IDS)
+
+# Инициализируем данные бота (если необходимо)
+# admin_handlers.init_bot_data(bot)  # Убрано, т.к. не используется в register_admin_handlers
 
 # Запуск бота
 if __name__ == '__main__':
@@ -40,8 +45,17 @@ if __name__ == '__main__':
     # Настраиваем команды меню
     setup_bot_commands()
     
-    # Запускаем напоминания (только в продакшене или для тестирования)
-    if config.IS_PRODUCTION or True:  # Всегда запускаем для тестирования
+    # Запускаем напоминания (только в продакшене или при необходимости в dev)
+    if config.IS_PRODUCTION:
+        print("Запуск напоминаний (production режим)")
         reminders.setup_reminders(bot)
-    
-    bot.polling(none_stop=True)
+    else:
+        print("Напоминания отключены (dev режим)")
+
+    # Запускаем polling с обработкой исключений
+    try:
+        bot.polling(none_stop=True)
+    except KeyboardInterrupt:
+        print("\nБот остановлен пользователем.")
+    except Exception as e:
+        print(f"Ошибка при запуске бота: {e}")

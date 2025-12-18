@@ -1,66 +1,46 @@
 [
   {
     "user_id": 196794559,
-    "parent_name": "Пл",
-    "child_name": "Юха",
-    "phone": "3413413",
-    "date": "09.12.2025",
-    "time": "09:00-10:00",
-    "timestamp": "2025-12-08T09:42:01.388833"
-  },
-  {
-    "user_id": 196794559,
-    "parent_name": "Пи",
-    "child_name": "Дорас",
-    "phone": "343432424",
-    "date": "11.12.2025",
-    "time": "09:00-10:00",
-    "timestamp": "2025-12-08T09:43:05.614182"
-  },
-  {
-    "user_id": 196794559,
-    "parent_name": "Че",
-    "child_name": "Рт",
-    "phone": "3423424",
-    "date": "10.12.2025",
-    "time": "15:00-16:00",
-    "timestamp": "2025-12-08T09:43:26.887282"
-  },
-  {
-    "user_id": 196794559,
-    "parent_name": "Пу",
-    "child_name": "Хан",
+    "parent_name": "алалаал",
+    "child_name": "ушушушу",
     "phone": "79964239790",
-    "date": "09.12.2025",
+    "date": "19.12.2025",
+    "time": "09:00-10:00",
+    "timestamp": "2025-12-17T18:09:28.378064",
+    "confirmed": false,
+    "cancelled_by_admin": true
+  },
+  {
+    "user_id": 196794559,
+    "parent_name": "йщйщйщй",
+    "child_name": "уоуоуруру",
+    "phone": "79964239790",
+    "date": "19.12.2025",
     "time": "10:00-11:00",
-    "timestamp": "2025-12-08T09:52:52.109648"
+    "timestamp": "2025-12-17T18:09:45.456583",
+    "confirmed": false,
+    "cancelled_by_admin": true
   },
   {
     "user_id": 196794559,
-    "parent_name": "Ку",
-    "child_name": "Кан",
-    "phone": "4524525",
-    "date": "09.12.2025",
-    "time": "11:00-12:00",
-    "timestamp": "2025-12-08T09:53:14.012431"
+    "parent_name": "уацаца",
+    "child_name": "цацаца",
+    "phone": "79964239790",
+    "date": "20.12.2025",
+    "time": "13:00-14:00",
+    "timestamp": "2025-12-18T15:31:04.918173",
+    "confirmed": false,
+    "cancelled_by_admin": true
   },
   {
     "user_id": 196794559,
-    "parent_name": "уц",
-    "child_name": "кц",
-    "phone": "2525252",
-    "date": "10.12.2025",
-    "time": "17:00-18:00",
-    "timestamp": "2025-12-08T09:53:36.161437"
-  },
-  {
-    "user_id": 196794559,
-    "parent_name": "ццц",
-    "child_name": "ууу",
-    "phone": "1232131",
-    "date": "10.12.2025",
+    "parent_name": "аоаоароаар",
+    "child_name": "аооыовоа",
+    "phone": "79964239790",
+    "date": "20.12.2025",
     "time": "14:00-15:00",
-    "timestamp": "2025-12-08T10:30:46.870669",
-    "confirmed": false
+    "timestamp": "2025-12-18T15:31:59.349567",
+    "confirmed": false,
+    "cancelled_by_user": true
   }
 ]
