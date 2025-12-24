@@ -22,9 +22,12 @@ def parse_admin_ids(primary_env, secondary_env):
         admin_ids.append(secondary)
     return admin_ids
 
-# --- Новая строка ---
-DATABASE_PATH = os.getenv('DATABASE_PATH', 'bot_database.db') # Путь к файлу БД
-# ----------------------
+# --- НОВОЕ: Загружаем строку подключения к БД ---
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    print("ПРЕДУПРЕЖДЕНИЕ: DATABASE_URL не задан. Используется локальная SQLite база данных.")
+    DATABASE_URL = 'sqlite:///bot_database.db' # Значение по умолчанию для локальной разработки
+# ------------------------------------------------
 
 # Конфигурация бота
 BOT_TOKEN = get_env_var('BOT_TOKEN', required=True)

@@ -261,10 +261,44 @@ def register_client_handlers(bot, admin_ids_list):
         child_name = message.text
         set_temp_data(user_id, 'temp_child_name', child_name)
 
-        # --- ТЕПЕРЬ ТОЛЬКО ВВЕСТИ НОМЕР ВРУЧНУЮ ---
-        msg = bot.send_message(message.chat.id, "Введите ваш номер телефона:")
-        # Регистрируем обработчик ввода номера
-        bot.register_next_step_handler(msg, process_manual_phone_v2)
+        msg = bot.send_message(message.chat.id, "Введите ваш номер телефона, или прикрепите его из телефонной книги:")
+        # Регистрируем ОДНУ функцию, которая сама разберётся
+        bot.register_next_step_handler(msg, process_phone_input_or_contact)
+
+    def process_phone_input_or_contact(message):
+        user_id = message.from_user.id
+        phone_input = None
+
+        if message.contact:
+            # Если это контакт, используем номер из контакта
+            phone_input = message.contact.phone_number
+        elif message.text:
+            # Если это текст, проверяем его
+            phone_input = message.text
+        else:
+            # Если ни то, ни другое
+            msg = bot.send_message(message.chat.id, "Пожалуйста, введите номер телефона или поделитесь контактом.")
+            bot.register_next_step_handler(msg, process_phone_input_or_contact)
+            return
+
+        # Теперь phone_input — это строка (если всё прошло успешно)
+        # Проверяем формат
+        if not re.match(r'^[\d\s\+\-\(\)]+$', phone_input):
+            msg = bot.send_message(message.chat.id, "Некорректный формат номера. Пожалуйста, введите только цифры и специальные символы (+, -, (, ), пробел).")
+            bot.register_next_step_handler(msg, process_phone_input_or_contact)
+            return
+
+        # Убираем лишние символы, оставляем только цифры (для проверки длины и т.д.)
+        clean_phone = re.sub(r'\D', '', phone_input)
+
+        # Пример: проверим минимальную длину
+        if len(clean_phone) < 10:
+            msg = bot.send_message(message.chat.id, "Номер телефона слишком короткий. Пожалуйста, введите корректный номер.")
+            bot.register_next_step_handler(msg, process_phone_input_or_contact)
+            return
+
+        set_temp_data(user_id, 'temp_phone', phone_input)
+        show_final_confirmation_v2(message)
 
     # --- НОВАЯ ФУНКЦИЯ С ПРОВЕРКОЙ НОМЕРА ---
     def process_manual_phone_v2(message):
@@ -333,6 +367,10 @@ def register_client_handlers(bot, admin_ids_list):
                 bot.answer_callback_query(call.id, "Ошибка: данные не найдены")
                 return
 
+            # --- НОВОЕ: Сохраняем пользователя в БД ПЕРЕД созданием записи ---
+            data.save_user(user_id, parent_name, phone)
+            # ----------------------------------------------------------------
+
             slots = data.load_slots()
 
             if selected_date in slots:
@@ -345,9 +383,9 @@ def register_client_handlers(bot, admin_ids_list):
 
             booking = {
                 "user_id": user_id,
-                "parent_name": parent_name,
+                "parent_name": parent_name, # Это поле не используется в save_booking, но оставим для совместимости
                 "child_name": child_name,
-                "phone": phone,
+                "phone": phone, # Это поле не используется в save_booking, но оставим для совместимости
                 "date": selected_date,
                 "time": selected_time,
                 "timestamp": datetime.now().isoformat(),
@@ -366,13 +404,13 @@ def register_client_handlers(bot, admin_ids_list):
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=f"✅ Вы успешно записаны!\n\n"
-                     f"Дата: {selected_date}\n"
-                     f"Время: {selected_time}\n\n"
-                     f"Напоминание придет за день до занятия.",
+                    f"Дата: {selected_date}\n"
+                    f"Время: {selected_time}\n\n"
+                    f"Напоминание придет за день до занятия.",
                 reply_markup=markup
             )
 
-            bot.answer_callback_query(call.id, "Запись подтверждена!")
+            bot.answer_callback_query(call.id)
 
         except Exception as e:
             print(f"Ошибка при подтверждении записи: {e}")
