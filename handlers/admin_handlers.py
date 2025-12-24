@@ -2,6 +2,34 @@ import telebot
 import data
 from datetime import datetime, timedelta
 
+# В admin_handlers.py
+
+def get_chat_and_message_id_from_call_or_msg(call=None, message=None):
+    """Возвращает chat_id и message_id из callback или message"""
+    if call:
+        return call.message.chat.id, call.message.message_id
+    elif message:
+        return message.chat.id, getattr(message, 'message_id', None)
+    return None, None
+
+def send_or_edit_message(chat_id, message_id, text, reply_markup=None):
+    """Отправляет или редактирует сообщение в зависимости от доступности message_id"""
+    try:
+        if message_id:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup
+            )
+        else:
+            bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+        print(f"Сообщение отправлено/отредактировано в чат {chat_id}") # Лог
+    except Exception as e:
+        print(f"Ошибка при отправке/редактировании сообщения: {e}") # Лог ошибки
+        import traceback
+        traceback.print_exc() # Печатает полный traceback
+
 def register_admin_handlers(bot, admin_ids_list):
     """Регистрирует обработчики для администраторов"""
     # Сохраняем список админов в замыкании
@@ -129,7 +157,145 @@ def register_admin_handlers(bot, admin_ids_list):
             text="Введите дату в формате ДД.ММ.ГГГГ (например, 25.12.2025):"
         )
         bot.register_next_step_handler(msg, process_admin_date_input)
-    
+
+    def admin_receive_hw_file(message, booking_id):
+        """Получает файл и комментарий от администратора."""
+        try:
+            admin_id = message.from_user.id
+            # Проверяем, что booking_id был сохранён
+            if not hasattr(bot, 'admin_temp_data') or admin_id not in bot.admin_temp_data or bot.admin_temp_data[admin_id]['booking_id'] != booking_id:
+                bot.reply_to(message, "Ошибка: неверный идентификатор записи.")
+                return
+
+            file_id = None
+            file_type = None
+
+            # Определяем тип файла
+            if message.photo:
+                file_id = message.photo[-1].file_id # Берем самое большое фото
+                file_type = 'photo'
+            elif message.document:
+                file_id = message.document.file_id
+                file_type = 'document'
+            elif message.video:
+                file_id = message.video.file_id
+                file_type = 'video'
+            else:
+                bot.reply_to(message, "Пожалуйста, отправьте фото, документ или видео.")
+                # Повторяем ожидание
+                msg = bot.send_message(message.chat.id, "Отправьте файл (фото, документ, видео) и, при желании, комментарий.")
+                bot.register_next_step_handler(msg, admin_receive_hw_file, booking_id)
+                return
+
+            # Комментарий - это текст сообщения, если он есть и не совпадает с caption
+            comment = message.caption if message.caption else ""
+
+            # Загружаем данные записи, чтобы получить user_id
+            all_bookings = data.load_bookings()
+            booking = next((b for b in all_bookings if b['id'] == booking_id), None)
+            if not booking:
+                bot.reply_to(message, "Ошибка: запись не найдена.")
+                return
+
+            user_id = booking['user_id']
+
+            # Отправляем файл пользователю
+            try:
+                if file_type == 'photo':
+                    bot.send_photo(user_id, file_id, caption=f"📚 Новое домашнее задание!\n\n{comment}")
+                elif file_type == 'document':
+                    bot.send_document(user_id, file_id, caption=f"📚 Новое домашнее задание!\n\n{comment}")
+                elif file_type == 'video':
+                    bot.send_video(user_id, file_id, caption=f"📚 Новое домашнее задание!\n\n{comment}")
+                bot.reply_to(message, f"Домашнее задание отправлено пользователю {user_id}.")
+            except Exception as e:
+                bot.reply_to(message, f"Ошибка при отправке пользователю: {e}")
+                print(f"Ошибка при отправке ДЗ пользователю {user_id}: {e}")
+                return
+
+            # Сохраняем в БД
+            data.save_homework(booking_id, file_id, file_type, comment, admin_id)
+
+            # Удаляем временные данные
+            if hasattr(bot, 'admin_temp_data'):
+                del bot.admin_temp_data[admin_id]
+
+            # Возвращаем админа в меню
+            show_admin_menu(message)
+
+        except Exception as e:
+            print(f"Ошибка при получении файла ДЗ: {e}")
+            import traceback
+            traceback.print_exc()
+            bot.reply_to(message, "Произошла ошибка при обработке файла.")
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('hw_select_'))
+    def admin_select_hw_booking_callback(call):
+        """Обработка выбора конкретной записи для ДЗ."""
+        try:
+            booking_id = int(call.data.split('_')[2])
+            # Проверим, что запись существует
+            all_bookings = data.load_bookings()
+            booking = next((b for b in all_bookings if b['id'] == booking_id), None)
+            if not booking:
+                bot.answer_callback_query(call.id, "Запись не найдена.")
+                return
+
+            # Сохраняем ID записи во временные данные администратора
+            # Т.к. у нас нет временных данных для администраторов, можно использовать глобальный словарь
+            if not hasattr(bot, 'admin_temp_data'):
+                bot.admin_temp_data = {}
+            admin_id = call.from_user.id
+            bot.admin_temp_data[admin_id] = {'booking_id': booking_id}
+
+            msg = bot.send_message(
+                call.message.chat.id,
+                f"Вы выбрали занятие: {booking['date']} {booking['time']} для {booking['child_name']}.\nТеперь отправьте файл (фото, документ, видео) и, при желании, комментарий к нему."
+            )
+            bot.register_next_step_handler(msg, admin_receive_hw_file, booking_id)
+
+            bot.answer_callback_query(call.id)
+        except Exception as e:
+            print(f"Ошибка при выборе записи для ДЗ: {e}")
+            import traceback
+            traceback.print_exc()
+            bot.answer_callback_query(call.id, "Ошибка при обработке выбора")
+
+    def admin_select_booking_for_hw_call(call):
+        """Показывает список прошедших записей для отправки ДЗ."""
+        print(f"admin_select_booking_for_hw_call вызвана для администратора: {call.from_user.id}")
+        try:
+            bookings = data.load_past_bookings_for_homework()
+            if not bookings:
+                send_or_edit_message(
+                    call.message.chat.id,
+                    call.message.message_id,
+                    "Нет прошедших записей для отправки ДЗ.",
+                    reply_markup=telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="admin_back"))
+                )
+                return
+
+            markup = telebot.types.InlineKeyboardMarkup()
+            for booking in bookings:
+                # Отображаем: дата, время, ребенок
+                button_text = f"{booking['date']} {booking['time']} - {booking['child_name']}"
+                callback_data = f"hw_select_{booking['id']}"
+                markup.add(telebot.types.InlineKeyboardButton(button_text, callback_data=callback_data))
+
+            markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="admin_back"))
+
+            send_or_edit_message(
+                call.message.chat.id,
+                call.message.message_id,
+                "Выберите занятие, для которого нужно отправить ДЗ:",
+                reply_markup=markup
+            )
+        except Exception as e:
+            print(f"Ошибка при выборе записи для ДЗ: {e}")
+            import traceback
+            traceback.print_exc()
+            bot.answer_callback_query(call.id, "Ошибка при загрузке записей") 
+
     def admin_view_slots_call(call):
         """Просмотр слотов через callback"""
         admin_view_slots(call.message)
@@ -194,6 +360,8 @@ def register_admin_handlers(bot, admin_ids_list):
                 admin_exit_call(call)
             elif call.data == 'admin_back':
                 show_admin_menu(call.message)
+            elif call.data == 'admin_send_hw': # <-- Новый elif
+                admin_select_booking_for_hw_call(call)
                 
             bot.answer_callback_query(call.id)
         except Exception as e:
@@ -461,33 +629,37 @@ def register_admin_handlers(bot, admin_ids_list):
     @bot.message_handler(func=lambda message: message.text == "👥 Просмотр записей" and is_admin(message.from_user.id))
     def admin_view_bookings(message):
         """Админ: просмотр записей"""
-        bookings = data.load_bookings()
-        
+        print(f"admin_view_bookings вызвана для администратора: {message.from_user.id}") # <-- Добавь это
+        bookings = data.load_bookings() # <-- Это место может "зависнуть", если БД занята или повреждена
+
         if not bookings:
             markup = telebot.types.InlineKeyboardMarkup()
             markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="admin_back"))
-            
+
             send_or_edit_message(
                 message.chat.id,
-                getattr(message, 'message_id', None),
+                getattr(message, 'message_id', None), # <-- Используем getattr
                 "Нет записей.",
                 reply_markup=markup
             )
+            print(f"admin_view_bookings завершена (нет записей) для администратора: {message.from_user.id}") # <-- Добавь это
             return
-        
+
         response = "👥 Записи на занятия:\n\n"
         for booking in bookings:
+            # Определяем статус записи
             status = ""
             if booking.get('cancelled_by_user', False):
                 status = "🚫 Отменена пользователем (слот освобожден)"
             elif booking.get('cancelled_by_admin', False):
                 status = "🚫 Отменена администратором"
             else:
-                slots = data.load_slots()
+                # Проверяем, доступен ли еще слот
+                slots = data.load_slots() # <-- Это место тоже может "зависнуть"
                 slot_available = False
                 slot_exists = False
                 slot_deleted_by_admin = False
-                
+
                 if booking['date'] in slots:
                     for slot in slots[booking['date']]:
                         if slot['time'] == booking['time']:
@@ -495,31 +667,36 @@ def register_admin_handlers(bot, admin_ids_list):
                             slot_available = slot.get('available', True)
                             slot_deleted_by_admin = slot.get('deleted_by_admin', False)
                             break
-                
+
                 if not slot_exists or slot_deleted_by_admin:
                     status = "🚫 Слот удален администратором"
                 elif not slot_available:
                     status = "✅ Подтверждена"
                 else:
                     status = "⏰ Ожидает подтверждения"
-            
+
+            # parent_name теперь в users, а не в booking
+            users_data = data.load_users() # <-- Это тоже может "зависнуть"
+            parent_name = users_data.get(str(booking['user_id']), {}).get('parent_name', 'N/A')
+
             response += f"📅 {booking['date']} {booking['time']}\n"
-            response += f"👨 Родитель: {booking['parent_name']}\n"
+            response += f"👨 Родитель: {parent_name}\n" # <-- Вот тут была ошибка
             response += f"👶 Ребенок: {booking['child_name']}\n"
             response += f"📞 Телефон: {booking['phone']}\n"
             response += f"🆔 ID пользователя: {booking['user_id']}\n"
             response += f"📊 Статус: {status}\n"
             response += "➖➖➖➖➖\n"
-        
+
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="admin_back"))
-        
+
         send_or_edit_message(
             message.chat.id,
-            getattr(message, 'message_id', None),
+            getattr(message, 'message_id', None), # <-- Используем getattr
             response,
             reply_markup=markup
         )
+        print(f"admin_view_bookings завершена (есть записи) для администратора: {message.from_user.id}") # <-- Добавь это
 
     def admin_manage_slots_call(call):
         """Управление слотами через callback"""
@@ -534,7 +711,19 @@ def register_admin_handlers(bot, admin_ids_list):
     
     def admin_view_bookings_call(call):
         """Просмотр записей через callback"""
-        admin_view_bookings(call.message)
+        print(f"admin_view_bookings_call вызвана для администратора: {call.from_user.id}") # <-- Добавь это
+        try:
+            # Эта функция просто вызывает admin_view_bookings, передавая ей call.message
+            # Но в admin_view_bookings нужно будет обработать и call и message
+            # Лучше переделать admin_view_bookings, чтобы она работала с call или message
+            admin_view_bookings(call.message) # <-- Вызов основной функции
+            print(f"admin_view_bookings_call завершена успешно для администратора: {call.from_user.id}") # <-- Добавь это
+        except Exception as e:
+            print(f"Ошибка в admin_view_bookings_call: {e}")
+            import traceback
+            traceback.print_exc()
+            bot.answer_callback_query(call.id, "Ошибка при загрузке записей") # <-- Добавь это
+            # bot.edit_message_text или bot.send_message с ошибкой
     
     def admin_analytics_call(call):
         """Аналитика через callback"""
@@ -650,10 +839,11 @@ def register_admin_handlers(bot, admin_ids_list):
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("📅 Управление слотами", callback_data="admin_slots"))
         markup.add(telebot.types.InlineKeyboardButton("👥 Просмотр записей", callback_data="admin_bookings"))
+        markup.add(telebot.types.InlineKeyboardButton("📤 Отправить ДЗ", callback_data="admin_send_hw")) # <-- Новая кнопка
         markup.add(telebot.types.InlineKeyboardButton("📊 Аналитика", callback_data="admin_analytics"))
         markup.add(telebot.types.InlineKeyboardButton("📖 Помощь", callback_data="admin_help"))
         markup.add(telebot.types.InlineKeyboardButton("🚪 Выход", callback_data="admin_exit"))
-        
+
         send_or_edit_message(
             message.chat.id,
             getattr(message, 'message_id', None),

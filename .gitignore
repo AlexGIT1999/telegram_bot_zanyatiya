@@ -57,3 +57,25 @@ temp/
 
 # Deploy files
 deploy.sh
+
+# Виртуальное окружение
+venv/
+env/
+
+# Файлы данных (теперь в БД)
+*.json
+
+# Файл БД SQLite
+bot_database.db
+# Если вы используете другой путь, укажите его здесь
+# my_custom_path.db
+
+# Файлы конфигурации
+.env
+
+# Логи
+*.log
+
+# IDE
+.vscode/
+.idea/

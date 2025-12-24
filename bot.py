@@ -2,6 +2,7 @@ import telebot
 import config
 from handlers import client_handlers, admin_handlers
 import reminders
+import data # Импортируем data
 
 # Получаем токен и список админов из конфига
 BOT_TOKEN = config.BOT_TOKEN
@@ -33,11 +34,11 @@ print("Регистрация обработчиков...")
 client_handlers.register_client_handlers(bot, ADMIN_IDS)
 admin_handlers.register_admin_handlers(bot, ADMIN_IDS)
 
-# Инициализируем данные бота (если необходимо)
-# admin_handlers.init_bot_data(bot)  # Убрано, т.к. не используется в register_admin_handlers
-
 # Запуск бота
 if __name__ == '__main__':
+    print("Инициализация базы данных...")
+    data.init_db() # Вызываем инициализацию БД
+
     print("Бот запущен...")
     print(f"Администраторские ID: {ADMIN_IDS}")
     print(f"Production mode: {config.IS_PRODUCTION}")

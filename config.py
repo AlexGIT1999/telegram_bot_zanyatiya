@@ -22,6 +22,10 @@ def parse_admin_ids(primary_env, secondary_env):
         admin_ids.append(secondary)
     return admin_ids
 
+# --- Новая строка ---
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'bot_database.db') # Путь к файлу БД
+# ----------------------
+
 # Конфигурация бота
 BOT_TOKEN = get_env_var('BOT_TOKEN', required=True)
 DEV_ADMIN_IDS = parse_admin_ids('ADMIN_ID', 'SECONDARY_ADMIN_ID')

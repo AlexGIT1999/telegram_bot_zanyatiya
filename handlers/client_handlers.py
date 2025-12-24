@@ -2,6 +2,7 @@ import telebot
 from datetime import datetime, date, timedelta
 import data
 import json
+import re  # Для проверки номера телефона
 
 # Хранилище временных данных пользователей
 temp_user_data = {}
@@ -46,21 +47,27 @@ def register_client_handlers(bot, admin_ids_list):
                 bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=reply_markup)
             else:
                 bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+            print(f"Сообщение отправлено/отредактировано в чат {chat_id}") # Лог
         except Exception as e:
-            print(f"Ошибка при отправке/редактировании сообщения: {e}")
+            print(f"Ошибка при отправке/редактировании сообщения: {e}") # Лог ошибки
+            import traceback
+            traceback.print_exc() # Печатает полный traceback
 
     @bot.message_handler(commands=['start'])
     def send_welcome(message):
         user_id = message.from_user.id
+
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("📝 Записаться на занятие", callback_data="book_lesson"))
         markup.add(telebot.types.InlineKeyboardButton("📅 Мои записи", callback_data="my_bookings"))
+        markup.add(telebot.types.InlineKeyboardButton("📥 Мои ДЗ", callback_data="my_homework")) # <-- Новая кнопка
         markup.add(telebot.types.InlineKeyboardButton("❌ Отменить запись", callback_data="cancel_booking"))
         markup.add(telebot.types.InlineKeyboardButton("📖 Помощь", callback_data="help"))
-        
-        bot.reply_to(
-            message, 
-            "Привет! Я бот для записи на занятия.\nВыберите действие:",
+
+        # Заменяем bot.reply_to на bot.send_message
+        bot.send_message(
+            message.chat.id,
+            "Привет! Я бот для записи на занятия и получения домашних заданий.\nВыберите действие:",
             reply_markup=markup
         )
 
@@ -153,7 +160,8 @@ def register_client_handlers(bot, admin_ids_list):
                 continue
 
         if not available_dates:
-            bot.send_message(message.chat.id, "К сожалению, пока нет доступных дат для записи.", reply_markup=telebot.types.ReplyKeyboardRemove())
+            # Убираем ReplyKeyboardRemove
+            bot.send_message(message.chat.id, "К сожалению, пока нет доступных дат для записи.")
             return
 
         try:
@@ -253,33 +261,32 @@ def register_client_handlers(bot, admin_ids_list):
         child_name = message.text
         set_temp_data(user_id, 'temp_child_name', child_name)
 
-        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        phone_button = telebot.types.KeyboardButton("📱 Поделиться номером", request_contact=True)
-        markup.add(phone_button)
-        markup.add("Ввести вручную")
+        # --- ТЕПЕРЬ ТОЛЬКО ВВЕСТИ НОМЕР ВРУЧНУЮ ---
+        msg = bot.send_message(message.chat.id, "Введите ваш номер телефона:")
+        # Регистрируем обработчик ввода номера
+        bot.register_next_step_handler(msg, process_manual_phone_v2)
 
-        msg = bot.send_message(message.chat.id, "Введите ваш номер телефона или поделитесь контактом:", reply_markup=markup)
-        bot.register_next_step_handler(msg, process_phone_input_v2)
-
-    def process_phone_input_v2(message):
-        user_id = message.from_user.id
-
-        if message.contact:
-            phone = message.contact.phone_number
-            set_temp_data(user_id, 'temp_phone', phone)
-            show_final_confirmation_v2(message)
-        elif message.text == "Ввести вручную":
-            msg = bot.send_message(message.chat.id, "Введите ваш номер телефона:", reply_markup=telebot.types.ReplyKeyboardRemove())
-            bot.register_next_step_handler(msg, process_manual_phone_v2)
-        else:
-            phone = message.text
-            set_temp_data(user_id, 'temp_phone', phone)
-            show_final_confirmation_v2(message)
-
+    # --- НОВАЯ ФУНКЦИЯ С ПРОВЕРКОЙ НОМЕРА ---
     def process_manual_phone_v2(message):
         user_id = message.from_user.id
-        phone = message.text
-        set_temp_data(user_id, 'temp_phone', phone)
+        phone_input = message.text
+
+        # Проверяем, что ввод содержит только цифры, +, -, (, ), и пробелы
+        if not re.match(r'^[\d\s\+\-\(\)]+$', phone_input):
+            msg = bot.send_message(message.chat.id, "Некорректный формат номера. Пожалуйста, введите только цифры и специальные символы (+, -, (, ), пробел).")
+            bot.register_next_step_handler(msg, process_manual_phone_v2)
+            return
+
+        # Убираем лишние символы, оставляем только цифры (для проверки длины и т.д.)
+        clean_phone = re.sub(r'\D', '', phone_input)
+
+        # Пример: проверим минимальную длину
+        if len(clean_phone) < 10:
+            msg = bot.send_message(message.chat.id, "Номер телефона слишком короткий. Пожалуйста, введите корректный номер.")
+            bot.register_next_step_handler(msg, process_manual_phone_v2)
+            return
+
+        set_temp_data(user_id, 'temp_phone', phone_input)
         show_final_confirmation_v2(message)
 
     def show_final_confirmation_v2(message):
@@ -530,6 +537,47 @@ def register_client_handlers(bot, admin_ids_list):
             response, 
             reply_markup=markup
         )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "my_homework")
+    def client_view_homework_call(call):
+        """Показывает клиенту его домашние задания."""
+        user_id = call.from_user.id
+        print(f"client_view_homework_call вызвана для пользователя: {user_id}")
+
+        homeworks = data.load_homeworks_for_user(user_id)
+
+        if not homeworks:
+            send_or_edit_message(
+                call.message.chat.id,
+                call.message.message_id,
+                "У вас пока нет домашних заданий.",
+                reply_markup=telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("📱 Главное меню", callback_data="main_menu"))
+            )
+            return
+
+        response = "📚 Ваши домашние задания:\n\n"
+        for hw in homeworks:
+            # Загружаем информацию о записи, чтобы показать дату и время занятия
+            all_bookings = data.load_bookings()
+            booking = next((b for b in all_bookings if b['id'] == hw['booking_id']), None)
+            date_time_str = f"{booking['date']} {booking['time']}" if booking else "Неизвестное занятие"
+            response += f"📅 Занятие: {date_time_str}\n"
+            response += f"📅 Отправлено: {hw['sent_at']}\n"
+            if hw['comment']:
+                response += f"📝 Комментарий: {hw['comment']}\n"
+            response += "➖➖➖➖➖\n"
+
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("📱 Главное меню", callback_data="main_menu"))
+
+        send_or_edit_message(
+            call.message.chat.id,
+            call.message.message_id,
+            response,
+            reply_markup=markup
+        )
+
+        bot.answer_callback_query(call.id)
 
     @bot.message_handler(func=lambda message: message.text == "❌ Отменить запись")
     def cancel_booking(message):
